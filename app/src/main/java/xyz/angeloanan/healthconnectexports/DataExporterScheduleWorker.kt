@@ -131,7 +131,7 @@ class DataExporterScheduleWorker(
         jsonValues["active_calories"] =
             healthDataAggregate[ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL]?.inKilocalories
                 ?: 0
-        jsonValues["total_calories"] =
+        jsonValues["total_calories_burned"] =
             healthDataAggregate[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories ?: 0
         jsonValues["sleep_duration_seconds"] =
             healthDataAggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.seconds ?: 0
