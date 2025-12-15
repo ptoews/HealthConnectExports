@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.runBlocking
 import java.time.LocalDate
+import java.time.ZoneId
 import java.util.TimeZone
 
 val httpClient = HttpClient(Android)
@@ -44,6 +45,9 @@ val requiredHealthConnectPermissions = setOf(
     HealthPermission.getReadPermission(NutritionRecord::class),
     HealthPermission.getReadPermission(WeightRecord::class),
 )
+
+// TODO: Make configurable
+const val DAYS_WINDOW = 31
 
 class DataExporterScheduleWorker(
     appContext: Context, workerParams: WorkerParameters
@@ -79,42 +83,10 @@ class DataExporterScheduleWorker(
         return requiredHealthConnectPermissions.all { it in grantedPermissions }
     }
 
-    override suspend fun doWork(): Result {
-        val notificationChannel = createNotificationChannel()
-
-        Log.d("DataExporterWorker", "Checking exports prerequisites")
-        val isGranted = isHealthConnectPermissionGranted(healthConnect)
-
-        if (!isGranted) {
-            Log.d("DataExporterWorker", "Health Connect permissions not granted")
-            return Result.failure()
-        }
-        Log.d("DataExporterWorker", "✅ Health Connect permissions granted")
-
-        val exportDestination: String? =
-            applicationContext.dataStore.data.map { it[EXPORT_DESTINATION_URI] }.first()
-        if (exportDestination == null) {
-            Log.d("DataExporterWorker", "Export destination not set")
-            return Result.failure()
-        }
-        Log.d("DataExporterWorker", "✅ Export destination set")
-
-        val foregroundNotification =
-            NotificationCompat.Builder(applicationContext, notificationChannel.id)
-                .setContentTitle("Exporting data")
-                .setContentText("Exporting Health Connect data to the cloud")
-                .setSmallIcon(R.drawable.ic_launcher_foreground).setOngoing(true)
-                .build()
-
-        notificationManager.notify(1, foregroundNotification)
-
-        // TODO: Lock this to a specific timezone
-        val zoneId = TimeZone.getDefault().toZoneId()
-        // Start of day yesterday
-        val startOfDay = LocalDate.now(zoneId).atStartOfDay(zoneId).minusDays(1).toInstant()
-        val endOfDay = LocalDate.now(zoneId).atStartOfDay(zoneId).toInstant().minusMillis(1)
-
-        Log.d("DataExporterWorker", "Fetching health data")
+    private suspend fun collectHealthData(day: LocalDate, zoneId: ZoneId): String {
+        val startOfDay = day.atStartOfDay(zoneId).toInstant()
+        val endOfDay = day.atStartOfDay(zoneId).plusDays(1).toInstant().minusMillis(1)
+        Log.d("DataExporterWorker", "Fetching health data for $startOfDay - $endOfDay")
         val healthDataAggregate = runBlocking {
             healthConnect.aggregate(
                 AggregateRequest(
@@ -155,20 +127,60 @@ class DataExporterScheduleWorker(
         jsonValues["weight"] =
             healthDataAggregate[WeightRecord.WEIGHT_MIN]?.inKilograms ?: 0
         val json = Gson().toJson(mapOf("time" to startOfDay.toEpochMilli(), "data" to jsonValues))
-        Log.d("DataExporterWorker", "Data: $json")
+        return json
+    }
 
-        try {
-            Log.d("DataExporterWorker", "Exporting data to $exportDestination")
-            httpClient.post("http://$exportDestination") {
-                contentType(ContentType.Application.Json)
-                setBody(json)
-            }
-        } catch (e: Exception) {
-            Log.e("DataExporterWorker", "Failed to export data", e)
+    override suspend fun doWork(): Result {
+        val notificationChannel = createNotificationChannel()
 
-            notificationManager.cancel(1)
-            notificationManager.notify(1, createExceptionNotification(e))
+        Log.d("DataExporterWorker", "Checking exports prerequisites")
+        val isGranted = isHealthConnectPermissionGranted(healthConnect)
+
+        if (!isGranted) {
+            Log.d("DataExporterWorker", "Health Connect permissions not granted")
             return Result.failure()
+        }
+        Log.d("DataExporterWorker", "✅ Health Connect permissions granted")
+
+        val exportDestination: String? =
+            applicationContext.dataStore.data.map { it[EXPORT_DESTINATION_URI] }.first()
+        if (exportDestination == null) {
+            Log.d("DataExporterWorker", "Export destination not set")
+            return Result.failure()
+        }
+        Log.d("DataExporterWorker", "✅ Export destination set")
+
+        val foregroundNotification =
+            NotificationCompat.Builder(applicationContext, notificationChannel.id)
+                .setContentTitle("Exporting data")
+                .setContentText("Exporting Health Connect data to the cloud")
+                .setSmallIcon(R.drawable.ic_launcher_foreground).setOngoing(true)
+                .build()
+
+        notificationManager.notify(1, foregroundNotification)
+
+        // TODO: Lock this to a specific timezone
+        val zoneId = TimeZone.getDefault().toZoneId()
+
+        val now = LocalDate.now(zoneId)
+
+        for (dayOffset in -DAYS_WINDOW..-1) {
+            val json = collectHealthData(now.plusDays(dayOffset.toLong()), zoneId)
+            Log.d("DataExporterWorker", "Data: $json")
+
+            try {
+                Log.d("DataExporterWorker", "Exporting data to $exportDestination")
+                httpClient.post("http://$exportDestination") {
+                    contentType(ContentType.Application.Json)
+                    setBody(json)
+                }
+            } catch (e: Exception) {
+                Log.e("DataExporterWorker", "Failed to export data", e)
+
+                notificationManager.cancel(1)
+                notificationManager.notify(1, createExceptionNotification(e))
+                return Result.failure()
+            }
         }
 
         notificationManager.cancel(1)
