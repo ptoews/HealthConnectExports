@@ -11,9 +11,11 @@ import androidx.health.connect.client.HealthConnectClient
 import androidx.health.connect.client.permission.HealthPermission
 import androidx.health.connect.client.records.ActiveCaloriesBurnedRecord
 import androidx.health.connect.client.records.HeartRateRecord
+import androidx.health.connect.client.records.NutritionRecord
 import androidx.health.connect.client.records.SleepSessionRecord
 import androidx.health.connect.client.records.StepsRecord
 import androidx.health.connect.client.records.TotalCaloriesBurnedRecord
+import androidx.health.connect.client.records.WeightRecord
 import androidx.health.connect.client.request.AggregateRequest
 import androidx.health.connect.client.time.TimeRangeFilter
 import androidx.work.CoroutineWorker
@@ -39,6 +41,8 @@ val requiredHealthConnectPermissions = setOf(
     HealthPermission.getReadPermission(ActiveCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(TotalCaloriesBurnedRecord::class),
     HealthPermission.getReadPermission(HeartRateRecord::class),
+    HealthPermission.getReadPermission(NutritionRecord::class),
+    HealthPermission.getReadPermission(WeightRecord::class),
 )
 
 class DataExporterScheduleWorker(
@@ -119,6 +123,11 @@ class DataExporterScheduleWorker(
                         ActiveCaloriesBurnedRecord.ACTIVE_CALORIES_TOTAL,
                         TotalCaloriesBurnedRecord.ENERGY_TOTAL,
                         SleepSessionRecord.SLEEP_DURATION_TOTAL,
+                        NutritionRecord.ENERGY_TOTAL,
+                        NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL,
+                        NutritionRecord.PROTEIN_TOTAL,
+                        NutritionRecord.TOTAL_FAT_TOTAL,
+                        WeightRecord.WEIGHT_MIN
                     ),
                     timeRangeFilter = TimeRangeFilter.Companion.between(startOfDay, endOfDay),
                 )
@@ -135,6 +144,16 @@ class DataExporterScheduleWorker(
             healthDataAggregate[TotalCaloriesBurnedRecord.ENERGY_TOTAL]?.inKilocalories ?: 0
         jsonValues["sleep_duration_seconds"] =
             healthDataAggregate[SleepSessionRecord.SLEEP_DURATION_TOTAL]?.seconds ?: 0
+        jsonValues["nutrition_energy"] =
+            healthDataAggregate[NutritionRecord.ENERGY_TOTAL]?.inKilocalories ?: 0
+        jsonValues["nutrition_carbs"] =
+            healthDataAggregate[NutritionRecord.TOTAL_CARBOHYDRATE_TOTAL]?.inGrams ?: 0
+        jsonValues["nutrition_protein"] =
+            healthDataAggregate[NutritionRecord.PROTEIN_TOTAL]?.inGrams ?: 0
+        jsonValues["nutrition_fat"] =
+            healthDataAggregate[NutritionRecord.TOTAL_FAT_TOTAL]?.inGrams ?: 0
+        jsonValues["weight"] =
+            healthDataAggregate[WeightRecord.WEIGHT_MIN]?.inKilograms ?: 0
         val json = Gson().toJson(mapOf("time" to startOfDay.toEpochMilli(), "data" to jsonValues))
         Log.d("DataExporterWorker", "Data: $json")
 
