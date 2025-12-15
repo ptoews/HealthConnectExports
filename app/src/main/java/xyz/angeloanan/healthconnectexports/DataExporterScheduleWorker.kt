@@ -140,7 +140,7 @@ class DataExporterScheduleWorker(
 
         try {
             Log.d("DataExporterWorker", "Exporting data to $exportDestination")
-            httpClient.post("https://$exportDestination") {
+            httpClient.post("http://$exportDestination") {
                 contentType(ContentType.Application.Json)
                 setBody(json)
             }
