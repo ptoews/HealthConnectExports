@@ -47,7 +47,7 @@ val requiredHealthConnectPermissions = setOf(
 )
 
 // TODO: Make configurable
-const val DAYS_WINDOW = 31
+const val DAYS_WINDOW = 1
 
 class DataExporterScheduleWorker(
     appContext: Context, workerParams: WorkerParameters
